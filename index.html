@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo do Dinossauro</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f7f7f7;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            flex-direction: column;
+        }
+        
+        #gameContainer {
+            background: white;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #gameCanvas {
+            border: 1px solid #d3d3d3;
+            display: block;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E6F3FF 100%);
+        }
+        
+        #score {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+            color: #333;
+        }
+        
+        #instructions {
+            text-align: center;
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.95);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            border: 2px solid #ff4444;
+        }
+        
+        .button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        
+        .button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="score">Pontuação: 0</div>
+        <canvas id="gameCanvas" width="800" height="200"></canvas>
+        <div id="instructions">
+            Pressione ESPAÇO ou clique para pular • Seta BAIXO para agachar • Evite os cactos e pássaros!
+        </div>
+        <div id="gameOver">
+            <h2>Game Over!</h2>
+            <p>Sua pontuação: <span id="finalScore">0</span></p>
+            <button class="button" onclick="restartGame()">Jogar Novamente</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+
+        // Variáveis do jogo
+        let gameRunning = false;
+        let gameStarted = false;
+        let score = 0;
+        let gameSpeed = 6;
+        let baseGameSpeed = 6;
+        let frameCount = 0;
+
+        // Dinossauro
+        const dino = {
+            x: 50,
+            y: 120,
+            width: 60,
+            height: 70,
+            dy: 0,
+            jumpPower: 15,
+            grounded: true,
+            color: '#4682B4',
+            ducking: false,
+            duckHeight: 35,
+            normalHeight: 70
+        };
+
+        // Obstáculos
+        let cacti = [];
+        let birds = [];
+        let obstacleTimer = 0;
+
+        // Nuvens para decoração
+        let clouds = [];
+        let cloudTimer = 0;
+
+        // Teclas pressionadas
+        let keys = {};
+
+        // Chão
+        const ground = {
+            x: 0,
+            y: 190,
+            width: canvas.width,
+            height: 10
+        };
+
+        // Inicializar nuvens
+        function initClouds() {
+            for (let i = 0; i < 3; i++) {
+                clouds.push({
+                    x: Math.random() * canvas.width,
+                    y: 20 + Math.random() * 50,
+                    width: 60,
+                    height: 20
+                });
+            }
+        }
+
+        // Desenhar dinossauro
+        function drawDino() {
+            const dinoHeight = dino.ducking ? dino.duckHeight : dino.normalHeight;
+            const dinoY = dino.ducking ? dino.y + (dino.normalHeight - dino.duckHeight) : dino.y;
+            
+            // Cor azul como na imagem
+            ctx.fillStyle = dino.color;
+            
+            if (!dino.ducking) {
+                // Dinossauro normal (em pé)
+                // Pernas (pernas grandes e grossas de T-Rex)
+                const legOffset = Math.floor(Date.now() / 200) % 2 * 4;
+                
+                // Perna esquerda
+                ctx.fillRect(dino.x + 10, dinoY + 45, 14, 30 + legOffset);
+                // Pé esquerdo
+                ctx.fillRect(dino.x + 8, dinoY + 72 + legOffset, 18, 10);
+                // Garras do pé esquerdo
+                ctx.fillStyle = '#2F4F4F';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillRect(dino.x + 8 + i * 5, dinoY + 82 + legOffset, 2, 5);
+                }
+                
+                ctx.fillStyle = dino.color;
+                // Perna direita
+                ctx.fillRect(dino.x + 35, dinoY + 45, 14, 30 - legOffset);
+                // Pé direito
+                ctx.fillRect(dino.x + 33, dinoY + 72 - legOffset, 18, 10);
+                // Garras do pé direito
+                ctx.fillStyle = '#2F4F4F';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillRect(dino.x + 33 + i * 5, dinoY + 82 - legOffset, 2, 5);
+                }
+                
+                ctx.fillStyle = dino.color;
+                
+                // Corpo principal (mais oval, não retangular)
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 30, dinoY + 35, 20, 15, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Barriga mais clara
+                ctx.fillStyle = '#87CEEB';
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 30, dinoY + 38, 15, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = dino.color;
+                
+                // Pescoço (mais natural)
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 45, dinoY + 25, 8, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Cabeça - formato mais natural de T-Rex (não quadrada)
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 55, dinoY + 12, 15, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Focinho alongado
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 68, dinoY + 15, 8, 6, 0, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Dinossauro agachado
+                // Corpo mais baixo e alongado
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 35, dinoY + 20, 25, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Barriga mais clara
+                ctx.fillStyle = '#87CEEB';
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 35, dinoY + 23, 20, 7, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = dino.color;
+                
+                // Cabeça mais baixa
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 55, dinoY + 15, 15, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Focinho alongado
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 68, dinoY + 18, 8, 4, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Pernas dobradas
+                ctx.fillRect(dino.x + 15, dinoY + 25, 12, 15);
+                ctx.fillRect(dino.x + 40, dinoY + 25, 12, 15);
+            }
+            
+            // Elementos comuns (olho, boca, etc.)
+            // Olho
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(dino.x + 58, dinoY + (dino.ducking ? 12 : 8), 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Brilho no olho
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(dino.x + 59, dinoY + (dino.ducking ? 11 : 7), 1, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Boca
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const mouthY = dinoY + (dino.ducking ? 18 : 15);
+            ctx.arc(dino.x + 68, mouthY, 6, 0.2, Math.PI * 0.8);
+            ctx.stroke();
+            
+            // Dentes pontudos triangulares
+            ctx.fillStyle = '#fff';
+            const teethCount = 4;
+            const teethSpacing = 3;
+            
+            for (let i = 0; i < teethCount; i++) {
+                // Dentes superiores (triangulares pontudos)
+                ctx.beginPath();
+                ctx.moveTo(dino.x + 64 + i * teethSpacing, mouthY - 2);
+                ctx.lineTo(dino.x + 65 + i * teethSpacing, mouthY + 2);
+                ctx.lineTo(dino.x + 66 + i * teethSpacing, mouthY - 2);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Dentes inferiores (triangulares pontudos)
+                ctx.beginPath();
+                ctx.moveTo(dino.x + 64 + i * teethSpacing, mouthY + 2);
+                ctx.lineTo(dino.x + 65 + i * teethSpacing, mouthY - 2);
+                ctx.lineTo(dino.x + 66 + i * teethSpacing, mouthY + 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            if (!dino.ducking) {
+                // Braços pequenos de T-Rex (só quando não agachado)
+                ctx.fillStyle = dino.color;
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 18, dinoY + 32, 4, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(dino.x + 42, dinoY + 32, 4, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Cauda longa
+                ctx.beginPath();
+                ctx.ellipse(dino.x - 5, dinoY + 40, 15, 6, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(dino.x - 18, dinoY + 42, 12, 4, 0, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Cauda quando agachado
+                ctx.fillStyle = dino.color;
+                ctx.beginPath();
+                ctx.ellipse(dino.x - 10, dinoY + 22, 18, 5, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Desenhar cacto
+        function drawCactus(cactus) {
+            ctx.fillStyle = '#2F5233';
+            
+            // Tronco principal
+            ctx.beginPath();
+            ctx.roundRect(cactus.x, cactus.y, cactus.width, cactus.height, 10);
+            ctx.fill();
+            
+            // Braço esquerdo
+            ctx.beginPath();
+            ctx.roundRect(cactus.x - 10, cactus.y + 15, 15, 25, 8);
+            ctx.fill();
+            
+            // Braço direito
+            ctx.beginPath();
+            ctx.roundRect(cactus.x + cactus.width - 5, cactus.y + 25, 15, 20, 8);
+            ctx.fill();
+            
+            // Espinhos no tronco principal
+            ctx.fillStyle = '#1a3d1f';
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 3; j++) {
+                    ctx.beginPath();
+                    ctx.moveTo(cactus.x + 3 + j * 5, cactus.y + 5 + i * 5);
+                    ctx.lineTo(cactus.x + 4 + j * 5, cactus.y + 2 + i * 5);
+                    ctx.lineTo(cactus.x + 5 + j * 5, cactus.y + 5 + i * 5);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // Desenhar pássaro
+        function drawBird(bird) {
+            const wingFlap = Math.floor(Date.now() / 150) % 2;
+            
+            ctx.fillStyle = '#8B4513';
+            
+            // Corpo do pássaro
+            ctx.beginPath();
+            ctx.ellipse(bird.x + 15, bird.y + 10, 12, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Cabeça
+            ctx.beginPath();
+            ctx.ellipse(bird.x + 25, bird.y + 8, 6, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bico
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.moveTo(bird.x + 30, bird.y + 8);
+            ctx.lineTo(bird.x + 35, bird.y + 8);
+            ctx.lineTo(bird.x + 32, bird.y + 10);
+            ctx.fill();
+            
+            // Olho
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(bird.x + 27, bird.y + 7, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Asas (animação de bater asas)
+            ctx.fillStyle = '#654321';
+            if (wingFlap === 0) {
+                // Asas para cima
+                ctx.beginPath();
+                ctx.ellipse(bird.x + 10, bird.y + 6, 8, 4, -0.5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(bird.x + 20, bird.y + 6, 8, 4, 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Asas para baixo
+                ctx.beginPath();
+                ctx.ellipse(bird.x + 10, bird.y + 14, 8, 4, 0.5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(bird.x + 20, bird.y + 14, 8, 4, -0.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Cauda
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath();
+            ctx.ellipse(bird.x + 5, bird.y + 12, 6, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Desenhar nuvem
+        function drawCloud(cloud) {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(cloud.x, cloud.y, 15, 0, Math.PI * 2);
+            ctx.arc(cloud.x + 15, cloud.y, 20, 0, Math.PI * 2);
+            ctx.arc(cloud.x + 30, cloud.y, 15, 0, Math.PI * 2);
+            ctx.arc(cloud.x + 15, cloud.y - 10, 15, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Desenhar chão
+        function drawGround() {
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(ground.x, ground.y, ground.width, ground.height);
+            
+            // Linha do chão com padrão
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let i = 0; i < canvas.width; i += 20) {
+                ctx.moveTo(i, ground.y);
+                ctx.lineTo(i + 10, ground.y);
+            }
+            ctx.stroke();
+        }
+
+        // Pulo do dinossauro
+        function jump() {
+            if (dino.grounded && !dino.ducking) {
+                dino.dy = -dino.jumpPower;
+                dino.grounded = false;
+            }
+        }
+
+        // Agachar dinossauro
+        function duck() {
+            if (dino.grounded) {
+                dino.ducking = true;
+                dino.height = dino.duckHeight;
+            }
+        }
+
+        // Parar de agachar
+        function stopDucking() {
+            dino.ducking = false;
+            dino.height = dino.normalHeight;
+        }
+
+        // Atualizar física do dinossauro
+        function updateDino() {
+            // Gravidade
+            dino.dy += 0.8;
+            dino.y += dino.dy;
+
+            // Verificar se está no chão
+            if (dino.y >= 120) {
+                dino.y = 120;
+                dino.dy = 0;
+                dino.grounded = true;
+            }
+
+            // Controle de agachar
+            if (keys['ArrowDown'] && dino.grounded) {
+                duck();
+            } else {
+                stopDucking();
+            }
+        }
+
+        // Criar novo cacto
+        function createCactus() {
+            cacti.push({
+                x: canvas.width,
+                y: 140,
+                width: 20,
+                height: 50,
+                type: 'cactus'
+            });
+        }
+
+        // Criar novo pássaro
+        function createBird() {
+            const birdHeights = [80, 100, 120]; // Diferentes alturas para os pássaros
+            birds.push({
+                x: canvas.width,
+                y: birdHeights[Math.floor(Math.random() * birdHeights.length)],
+                width: 35,
+                height: 20,
+                type: 'bird'
+            });
+        }
+
+        // Atualizar obstáculos
+        function updateObstacles() {
+            obstacleTimer++;
+            
+            // Criar novos obstáculos (cactos ou pássaros)
+            if (obstacleTimer > 60 + Math.random() * 80) {
+                if (Math.random() < 0.7) {
+                    createCactus();
+                } else {
+                    createBird();
+                }
+                obstacleTimer = 0;
+            }
+
+            // Mover cactos
+            for (let i = cacti.length - 1; i >= 0; i--) {
+                cacti[i].x -= gameSpeed;
+                
+                // Remover cactos que saíram da tela
+                if (cacti[i].x + cacti[i].width < 0) {
+                    cacti.splice(i, 1);
+                    score += 10;
+                }
+            }
+
+            // Mover pássaros
+            for (let i = birds.length - 1; i >= 0; i--) {
+                birds[i].x -= gameSpeed;
+                
+                // Remover pássaros que saíram da tela
+                if (birds[i].x + birds[i].width < 0) {
+                    birds.splice(i, 1);
+                    score += 10;
+                }
+            }
+        }
+
+        // Atualizar nuvens
+        function updateClouds() {
+            cloudTimer++;
+            
+            // Adicionar nova nuvem ocasionalmente
+            if (cloudTimer > 200 && clouds.length < 5) {
+                clouds.push({
+                    x: canvas.width,
+                    y: 20 + Math.random() * 50,
+                    width: 60,
+                    height: 20
+                });
+                cloudTimer = 0;
+            }
+
+            // Mover nuvens
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                clouds[i].x -= gameSpeed * 0.3;
+                
+                if (clouds[i].x + clouds[i].width < 0) {
+                    clouds.splice(i, 1);
+                }
+            }
+        }
+
+        // Verificar colisões
+        function checkCollisions() {
+            const dinoHeight = dino.ducking ? dino.duckHeight : dino.normalHeight;
+            const dinoY = dino.ducking ? dino.y + (dino.normalHeight - dino.duckHeight) : dino.y;
+            
+            // Colisões com cactos
+            for (let cactus of cacti) {
+                if (dino.x < cactus.x + cactus.width - 10 &&
+                    dino.x + dino.width - 10 > cactus.x &&
+                    dinoY < cactus.y + cactus.height &&
+                    dinoY + dinoHeight > cactus.y) {
+                    return true;
+                }
+            }
+
+            // Colisões com pássaros
+            for (let bird of birds) {
+                if (dino.x < bird.x + bird.width - 5 &&
+                    dino.x + dino.width - 5 > bird.x &&
+                    dinoY < bird.y + bird.height &&
+                    dinoY + dinoHeight > bird.y) {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // Atualizar pontuação e velocidade (como no jogo original)
+        function updateScore() {
+            if (gameRunning) {
+                frameCount++;
+                
+                // Aumenta a pontuação a cada 6 frames (similar ao original)
+                if (frameCount % 6 === 0) {
+                    score++;
+                }
+                
+                // Aumenta a velocidade a cada 100 pontos (como no original)
+                if (score > 0 && score % 100 === 0 && score !== 0) {
+                    gameSpeed = baseGameSpeed + Math.floor(score / 100) * 0.5;
+                    if (gameSpeed > baseGameSpeed + 5) {
+                        gameSpeed = baseGameSpeed + 5; // Velocidade máxima
+                    }
+                }
+            }
+            scoreElement.textContent = `Pontuação: ${score}`;
+        }
+
+        // Game Over
+        function gameOver() {
+            gameRunning = false;
+            finalScoreElement.textContent = score;
+            gameOverElement.style.display = 'block';
+        }
+
+        // Reiniciar jogo
+        function restartGame() {
+            gameRunning = true;
+            gameStarted = true;
+            score = 0;
+            frameCount = 0;
+            gameSpeed = baseGameSpeed;
+            cacti = [];
+            birds = [];
+            clouds = [];
+            obstacleTimer = 0;
+            cloudTimer = 0;
+            dino.y = 120;
+            dino.dy = 0;
+            dino.grounded = true;
+            dino.ducking = false;
+            dino.height = dino.normalHeight;
+            gameOverElement.style.display = 'none';
+            keys = {};
+            initClouds();
+        }
+
+        // Loop principal do jogo
+        function gameLoop() {
+            // Limpar canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameRunning) {
+                updateDino();
+                updateObstacles();
+                updateClouds();
+                updateScore();
+
+                if (checkCollisions()) {
+                    gameOver();
+                }
+            }
+
+            // Desenhar tudo
+            for (let cloud of clouds) {
+                drawCloud(cloud);
+            }
+            
+            drawGround();
+            drawDino();
+            
+            for (let cactus of cacti) {
+                drawCactus(cactus);
+            }
+
+            for (let bird of birds) {
+                drawBird(bird);
+            }
+
+            // Desenhar mensagem inicial
+            if (!gameStarted) {
+                ctx.fillStyle = '#333';
+                ctx.font = '20px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('Pressione ESPAÇO para começar!', canvas.width/2, 100);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Controles
+        document.addEventListener('keydown', function(event) {
+            keys[event.code] = true;
+            
+            if (event.code === 'Space') {
+                event.preventDefault();
+                if (!gameStarted) {
+                    restartGame();
+                } else if (gameRunning) {
+                    jump();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', function(event) {
+            keys[event.code] = false;
+        });
+
+        // Controle por clique/toque
+        canvas.addEventListener('click', function() {
+            if (!gameStarted) {
+                restartGame();
+            } else if (gameRunning) {
+                jump();
+            }
+        });
+
+        // Inicializar
+        initClouds();
+        gameLoop();
+    </script>
+</body>
+</html>
